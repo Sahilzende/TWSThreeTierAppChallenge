@@ -1,0 +1,67 @@
+name: CI/CD for 3-Tier App on EKS (ECR)
+
+on:
+  push:
+    branches: [ "main" ]  # triggers on push to main branch
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout source code
+      uses: actions/checkout@v4
+
+    # ----- Configure AWS -----
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    # ----- Login to Amazon ECR -----
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    # ----- Build and Push Backend Image -----
+    - name: Build and push backend image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./TWSThreeTierAppChallenge/Application-Code/backend
+        file: ./TWSThreeTierAppChallenge/Application-Code/backend/Dockerfile
+        push: true
+        tags: |
+          ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/backend:latest
+
+    # ----- Build and Push Frontend Image -----
+    - name: Build and push frontend image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./TWSThreeTierAppChallenge/Application-Code/frontend
+        file: ./TWSThreeTierAppChallenge/Application-Code/frontend/Dockerfile
+        push: true
+        tags: |
+          ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/frontend:latest
+
+    # ----- Configure kubectl -----
+    - name: Set up kubeconfig for EKS
+      run: |
+        echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 --decode > kubeconfig
+        export KUBECONFIG=kubeconfig
+
+    # ----- Deploy to EKS -----
+    - name: Update backend deployment
+      run: |
+        kubectl set image deployment/backend backend=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/backend:latest
+        kubectl rollout status deployment/backend
+
+    - name: Update frontend deployment
+      run: |
+        kubectl set image deployment/frontend frontend=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/frontend:latest
+        kubectl rollout status deployment/frontend
+
+    - name: Apply services
+      run: |
+        kubectl apply -f manifests/service.yaml
