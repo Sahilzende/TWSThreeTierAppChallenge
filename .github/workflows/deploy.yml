@@ -1,18 +1,19 @@
-name: CI/CD for 3-Tier App on EKS (ECR)
+name: CI/CD 3-Tier App on EKS
 
 on:
   push:
-    branches: [ "main" ]  # triggers on push to main branch
+    branches: [ "main" ]  # triggers on push to main
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
+    # ----------------- Step 1: Checkout Repo -----------------
     - name: Checkout source code
       uses: actions/checkout@v4
 
-    # ----- Configure AWS -----
+    # ----------------- Step 2: Configure AWS -----------------
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
@@ -20,12 +21,12 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ secrets.AWS_REGION }}
 
-    # ----- Login to Amazon ECR -----
+    # ----------------- Step 3: Login to Amazon ECR -----------------
     - name: Login to Amazon ECR
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v2
 
-    # ----- Build and Push Backend Image -----
+    # ----------------- Step 4: Build and Push Backend Image -----------------
     - name: Build and push backend image
       uses: docker/build-push-action@v5
       with:
@@ -35,7 +36,7 @@ jobs:
         tags: |
           ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/backend:latest
 
-    # ----- Build and Push Frontend Image -----
+    # ----------------- Step 5: Build and Push Frontend Image -----------------
     - name: Build and push frontend image
       uses: docker/build-push-action@v5
       with:
@@ -45,23 +46,28 @@ jobs:
         tags: |
           ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/frontend:latest
 
-    # ----- Configure kubectl -----
-    - name: Set up kubeconfig for EKS
+    # ----------------- Step 6: Configure kubectl for EKS -----------------
+    - name: Set up kubeconfig
       run: |
         echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 --decode > kubeconfig
         export KUBECONFIG=kubeconfig
 
-    # ----- Deploy to EKS -----
-    - name: Update backend deployment
+    # ----------------- Step 7: Deploy Backend -----------------
+    - name: Deploy backend to EKS
       run: |
-        kubectl set image deployment/backend backend=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/backend:latest
-        kubectl rollout status deployment/backend
+        kubectl apply -f TWSThreeTierAppChallenge/Kubernetes-Manifests-file/Backend
 
-    - name: Update frontend deployment
+    # ----------------- Step 8: Deploy Frontend -----------------
+    - name: Deploy frontend to EKS
       run: |
-        kubectl set image deployment/frontend frontend=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/frontend:latest
-        kubectl rollout status deployment/frontend
+        kubectl apply -f TWSThreeTierAppChallenge/Kubernetes-Manifests-file/Frontend
 
-    - name: Apply services
+    # ----------------- Step 9: Deploy Database -----------------
+    - name: Deploy database to EKS
       run: |
-        kubectl apply -f manifests/service.yaml
+        kubectl apply -f TWSThreeTierAppChallenge/Kubernetes-Manifests-file/Database
+
+    # ----------------- Step 10: Deploy Ingress -----------------
+    - name: Deploy ingress
+      run: |
+        kubectl apply -f TWSThreeTierAppChallenge/Kubernetes-Manifests-file/ingress.yaml
